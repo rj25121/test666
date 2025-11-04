@@ -13,6 +13,8 @@ const MODEL_NAME = "gemini-2.5-flash"; // Or your preferred model
 // --- EMOJI STRIPPING UTILITY FUNCTION ---
 function stripEmojis(str) {
     if (!str) return '';
+    // This regex targets a broad range of common emoji and pictorial Unicode blocks.
+    // The 'gu' flags enable full Unicode support and global matching.
     return str.replace(/(\u00a9|\u00ae|[\u2000-\u3300]|\ud83c[\ud000-\udfff]|\ud83d[\ud000-\udfff]|\ud83e[\ud000-\udfff])/gu, '');
 }
 
