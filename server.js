@@ -13,8 +13,6 @@ const MODEL_NAME = "gemini-2.5-flash"; // Or your preferred model
 // --- EMOJI STRIPPING UTILITY FUNCTION ---
 function stripEmojis(str) {
     if (!str) return '';
-    // This regex targets a broad range of common emoji and pictorial Unicode blocks.
-    // The 'gu' flags enable full Unicode support and global matching.
     return str.replace(/(\u00a9|\u00ae|[\u2000-\u3300]|\ud83c[\ud000-\udfff]|\ud83d[\ud000-\udfff]|\ud83e[\ud000-\udfff])/gu, '');
 }
 
@@ -63,6 +61,7 @@ async function generateCoreAssessment(scanData, parts) {
         ]
     };
 
+    // --- FIX: Correct URL with https:// ---
     const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${GEMINI_API_KEY}`;
         
     const response = await fetch(apiUrl, {
@@ -80,7 +79,7 @@ async function generateCoreAssessment(scanData, parts) {
     return result.candidates?.[0]?.content?.parts?.[0]?.text || "**Core Vastu Assessment (Defects Found)**\n- Assessment failed to generate. Please rescan.";
 }
 
-// --- HELPER FUNCTION 2: Generates text-only queries ---
+// --- HELPER FUNCTION 2: Generates text-only queries (WITH SOFTER PROMPT) ---
 function getAiQuery(scanData, isDeepAnalysis, coreAssessment, cuspWarning = "") {
     const {
         currentRoomTag,
@@ -106,10 +105,10 @@ function getAiQuery(scanData, isDeepAnalysis, coreAssessment, cuspWarning = "") 
     `;
     
     if (isDeepAnalysis) {
-        // This is now a TEXT-ONLY prompt
+        // --- THIS IS THE FIX: Softened the language ---
         return `
-            CRITICAL INSTRUCTION: You are a Master Vastu Shastra Analyst AI, specializing in structural and permanent solutions.
-            Your task is to provide an EXPERT-LEVEL, STRUCTURAL Analysis based **EXCLUSIVELY** on the Core Vastu Findings provided below.
+            CRITICAL INSTRUCTION: You are a Master Vastu Shastra Analyst AI, specializing in structural solutions.
+            Your task is to provide an ADVANCED, STRUCTURAL Analysis based **EXCLUSIVELY** on the Core Vastu Findings provided below.
             
             ${sharedContext}
             
@@ -120,20 +119,20 @@ function getAiQuery(scanData, isDeepAnalysis, coreAssessment, cuspWarning = "") 
             **Expert Analysis (Structural Recommendations)**
             
             Then, add this disclaimer on a new line:
-            "The following are high-stakes, structural remedies a professional consultant might suggest. These are major changes and should be considered carefully."
+            "The following are advanced, structural-level observations. These are major changes and should be considered carefully."
             
             Then, create two subsections, both using bullet points (using a dash "-"):
             
             **Minor Structural Recommendations**
-            (List minor demolition/construction remedies that address the core defects.)
+            (List minor structural changes that address the core defects. e.g., "- Relocating the stove from the North to the South-East corner of the kitchen.")
             
             **Major Structural Recommendations**
-            (List high-stakes demolition/construction remedies that address the core defects.)
+            (List major structural changes that address the core defects. e.g., "- The kitchen's location is a severe defect. The ideal solution is to move this kitchen to the South-East zone.")
             
             Formatting: Use bullet points (using -). You MUST use **bold markdown** for the main title and two sub-section titles.
         `;
     } else {
-        // This is also a TEXT-ONLY prompt
+        // This is the (working) Formal Report prompt
         return `
             CRITICAL INSTRUCTION: You are a Master Vastu Shastra Analyst AI, specializing in non-structural, actionable remedies.
             Your response must be a single, structured Vastu Report, following all instructions below exactly. Use the Core Vastu Findings to guide your report.
@@ -232,6 +231,7 @@ app.post('/api/generateReport', async (req, res) => {
             ]
         };
 
+        // --- FIX: Correct URL with https:// ---
         const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${GEMINI_API_KEY}`;
         
         const response = await fetch(apiUrl, {
@@ -242,13 +242,14 @@ app.post('/api/generateReport', async (req, res) => {
 
         if (!response.ok) {
             const errorText = await response.text();
+            // This is where the 500 error from the "Expert" prompt was likely thrown
             throw new Error(`Google API Error (Final Report): ${response.status} - ${errorText}`);
         }
 
         const result = await response.json();
         const aiResponse = result.candidates?.[0]?.content?.parts?.[0]?.text || "";
         
-        // Prepend the Core Assessment to the final report text
+        // Prepend the (now successful) Core Assessment to the final report text
         const finalReport = `${coreAssessment}\n\n---\n\n${aiResponse}`;
         
         res.json({ text: finalReport });
@@ -357,7 +358,7 @@ app.post('/api/handleChat', async (req, res) => {
             }
         };
 
-        // --- apiUrl (with typo fixed) ---
+        // --- FIX: Correct URL with https:// ---
         const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${GEMINI_API_KEY}`;
 
         const response = await fetch(apiUrl, {
