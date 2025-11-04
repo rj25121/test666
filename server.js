@@ -13,19 +13,16 @@ const MODEL_NAME = "gemini-2.5-flash"; // Or your preferred model
 // --- EMOJI STRIPPING UTILITY FUNCTION ---
 function stripEmojis(str) {
     if (!str) return '';
-    // This regex targets a broad range of common emoji and pictorial Unicode blocks.
-    // The 'gu' flags enable full Unicode support and global matching.
     return str.replace(/(\u00a9|\u00ae|[\u2000-\u3300]|\ud83c[\ud000-\udfff]|\ud83d[\ud000-\udfff]|\ud83e[\ud000-\udfff])/gu, '');
 }
 
-// --- NEW HELPER FUNCTION: Add this near the top of server.js ---
+// --- VASTU UTILITY FUNCTION ---
 const VASTU_ZONES_16 = [
     "N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE",
     "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"
 ];
 
 function getVastuZone(degrees) {
-    // This function calculates the 16-zone Vastu quadrant
     const offset = 11.25;
     let index = Math.floor(((degrees + offset) % 360) / 22.5);
     return VASTU_ZONES_16[index % 16];
@@ -35,12 +32,10 @@ function getVastuZone(degrees) {
 app.use(cors()); // Allow cross-origin requests
 app.use(express.json({ limit: '50mb' })); // Increase payload limit for 8 images
 
-// --- HELPER FUNCTION: To create the core consistency output (MULTIMODAL RE-ENABLED) ---
+// --- HELPER FUNCTION 1: (RE-ENABLED) Analyzes the 8 images ---
 async function generateCoreAssessment(scanData, parts) {
-    // This runs first to establish the agreed-upon Vastu defects.
     if (!GEMINI_API_KEY) throw new Error("Server API Key is not configured for core assessment.");
 
-    // [MULTIMODAL RE-ENABLED] Prompt asks for image analysis
     const query = `
         CRITICAL INSTRUCTION: You are a Vastu Analyst AI. Analyze the provided ${parts.length - 1} visual segments 
         and the following room context: Room: ${scanData.currentRoomTag}, Location: ${scanData.roomLocationInHouse}, 
@@ -55,8 +50,8 @@ async function generateCoreAssessment(scanData, parts) {
         Followed by a list using dashes (-). Do NOT include remedies.
     `;
 
+    // THIS IS THE HEAVY MULTIMODAL CALL (with images)
     const payload = {
-        // [MULTIMODAL RE-ENABLED] Sending all image parts and the query
         contents: [{ role: "user", parts: [...parts, { text: query }] }],
         safetySettings: [
             { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
@@ -83,8 +78,8 @@ async function generateCoreAssessment(scanData, parts) {
     return result.candidates?.[0]?.content?.parts?.[0]?.text || "**Core Vastu Assessment (Defects Found)**\n- Assessment failed to generate. Please rescan.";
 }
 
-// --- MODIFIED HELPER FUNCTION: Accepts cuspWarning ---
-function getAiQuery(scanData, isDeepAnalysis, coreAssessment, cuspWarning = "") { // Added cuspWarning
+// --- HELPER FUNCTION 2: (REVERTED) Generates text-only queries ---
+function getAiQuery(scanData, isDeepAnalysis, coreAssessment, cuspWarning = "") {
     const {
         currentRoomTag,
         roomLocationInHouse,
@@ -93,15 +88,8 @@ function getAiQuery(scanData, isDeepAnalysis, coreAssessment, cuspWarning = "") 
         holisticSurroundings
     } = scanData;
     
-    // --- FIX: Check if capturedFrames exists before reducing ---
-    const avgHeading = (scanData.capturedFrames && scanData.capturedFrames.length > 0) 
-        ? scanData.capturedFrames.reduce((sum, frame) => sum + frame.heading, 0) / scanData.capturedFrames.length 
-        : 0;
-        
-    const vastuZonesObserved = (scanData.capturedFrames && scanData.capturedFrames.length > 0)
-        ? [...new Set(scanData.capturedFrames.map(f => f.zone))].join(', ')
-        : 'N/A';
-
+    // Scan data is not needed here as we are only using the Core Assessment text
+    
     // --- Template for all reports to ensure shared context ---
     const sharedContext = `
         ${cuspWarning} 
@@ -115,10 +103,10 @@ function getAiQuery(scanData, isDeepAnalysis, coreAssessment, cuspWarning = "") 
         - Floor: ${floorNumber || 'N/A'}
         - User's Concerns: ${holisticIssues}
         - Property Surroundings: ${holisticSurroundings}
-        - Scan Data: Average Heading: ${avgHeading.toFixed(1)} degrees. Zones Covered: ${vastuZonesObserved}.
     `;
     
     if (isDeepAnalysis) {
+        // This is now a TEXT-ONLY prompt
         return `
             CRITICAL INSTRUCTION: You are a Master Vastu Shastra Analyst AI, specializing in structural and permanent solutions.
             Your task is to provide an EXPERT-LEVEL, STRUCTURAL Analysis based **EXCLUSIVELY** on the Core Vastu Findings provided below.
@@ -137,14 +125,15 @@ function getAiQuery(scanData, isDeepAnalysis, coreAssessment, cuspWarning = "") 
             Then, create two subsections, both using bullet points (using a dash "-"):
             
             **Minor Structural Recommendations**
-            (List minor demolition/construction remedies that address the core defects. e.g., "- Relocating the stove from the North to the South-East corner of the kitchen.")
+            (List minor demolition/construction remedies that address the core defects.)
             
             **Major Structural Recommendations**
-            (List high-stakes demolition/construction remedies that address the core defects. e.g., "- The kitchen's location is a severe defect. The ideal expert solution is to move this kitchen to the South-East zone.")
+            (List high-stakes demolition/construction remedies that address the core defects.)
             
             Formatting: Use bullet points (using -). You MUST use **bold markdown** for the main title and two sub-section titles.
         `;
     } else {
+        // This is also a TEXT-ONLY prompt
         return `
             CRITICAL INSTRUCTION: You are a Master Vastu Shastra Analyst AI, specializing in non-structural, actionable remedies.
             Your response must be a single, structured Vastu Report, following all instructions below exactly. Use the Core Vastu Findings to guide your report.
@@ -155,18 +144,18 @@ function getAiQuery(scanData, isDeepAnalysis, coreAssessment, cuspWarning = "") 
             
             The report must be structured into FIVE consecutive sections. Use **bold markdown** for all section titles:
 
-            **I. Executive Summary (Layman's Terms)**: Simple summary. Cover the 2-3 most critical findings (from CORE ASSESSMENT) and non-structural remedies, linking them to the user's primary concerns (if provided).
+            **I. Executive Summary (Layman's Terms)**: Simple summary. Cover the 2-3 most critical findings (from CORE ASSESSMENT) and non-structural remedies.
             Ensure you mention the Vastu Zone compliance of the scanned area (${currentRoomTag}) based on its location (${roomLocationInHouse}).
 
-            **II. Directional Data and Environmental Assessment**: Technical analysis of the observed headings and visual elements.
+            **II. Directional Data and Environmental Assessment**: Technical analysis of the observed headings and Vastu zones.
 
             **III. Analysis of Vastu Compliance**: Technical findings, issues, and defects found, explicitly referencing the points in the CORE ASSESSMENT.
 
-            **IV. Remedial Recommendations (Advanced)**: CRITICAL: This section MUST use bullet points (using a dash "-"). Structure this section into two sub-sections using **bold markdown**. All remedies must be NON-STRUCTURAL (no construction or demolition suggested):
+            **IV. Remedial Recommendations (Advanced)**: CRITICAL: This section MUST use bullet points (using a dash "-"). Structure this section into two sub-sections using **bold markdown**. All remedies must be NON-STRUCTURAL.
             **Minor Defects & Remedies**
-            (List non-structural remedies here, like placing plants, changing colors, or adding mirrors.)
+            (List non-structural remedies here.)
             **Major Defects & Remedies**
-            (List more significant NON-STRUCTURAL remedies here, like moving heavy furniture or changing bed positions.)
+            (List more significant NON-STRUCTURAL remedies here.)
             
             **V. Vastu Tips & Remedies (Actionable Advice)**: A short, separate section offering quick, general Vastu tips related to this specific room type.
             
@@ -179,7 +168,7 @@ function getAiQuery(scanData, isDeepAnalysis, coreAssessment, cuspWarning = "") 
     }
 }
 
-// --- MODIFIED API ROUTE: Includes Cusp Warning Logic ---
+// --- MODIFIED API ROUTE: Hybrid Two-Call Strategy ---
 app.post('/api/generateReport', async (req, res) => {
     if (!GEMINI_API_KEY) {
         return res.status(500).json({ error: "Server API Key is not configured." });
@@ -191,7 +180,7 @@ app.post('/api/generateReport', async (req, res) => {
         // --- CUSP WARNING LOGIC ---
         let cuspWarning = "";
         const userAngle = scanData.roomLocationInHouse;
-
+        // ... (rest of CUSP WARNING LOGIC remains the same) ...
         if (typeof userAngle === 'number' && userAngle !== 0) {
             const zone1 = getVastuZone(userAngle);
             const zone2 = getVastuZone((userAngle + 10.0) % 360);
@@ -203,20 +192,19 @@ app.post('/api/generateReport', async (req, res) => {
                 cuspWarning = `
                     **CRITICAL WARNING: CUSP DETECTION**
                     The user's locked angle of **${userAngle.toFixed(1)}°** is on the border of two Vastu zones.
-                    A slight 10-degree pointing error could change the result.
                     Your analysis **MUST** address this. Start your report with this warning:
                     
                     "**Warning: Potential Inaccuracy Detected**
-                    Your room's locked direction is on the border of the **${zone1}** and **${otherZone}** zones. A small 10-degree error in pointing at the house center can change this reading. We have provided a full analysis for the **${zone1}** zone, but please also review the potential issues if your room is in **${otherZone}**."
+                    Your room's locked direction is on the border of the **${zone1}** and **${otherZone}** zones."
                     
-                    Then, in your main analysis (for the standard report, not the expert one), you MUST also add a *brief* section titled:
+                    Then, in your main analysis (for the standard report), you MUST also add a *brief* section titled:
                     **"VI. Cusp Analysis (${otherZone} Zone)"**
                     Briefly list 2-3 key Vastu defects that would apply if the room were in the **${otherZone}** zone instead.
                 `;
             }
         }
         
-        // --- FIX: Create a separate array for image parts ---
+        // --- Create array for image parts ---
         let imageParts = [];
         if (scanData.capturedFrames && scanData.capturedFrames.length > 0) {
             scanData.capturedFrames.forEach((frame, index) => {
@@ -224,27 +212,20 @@ app.post('/api/generateReport', async (req, res) => {
                 imageParts.push({ text: `--- Visual Data Segment ${index + 1} Captured at Heading ${frame.heading.toFixed(1)} degrees (Vastu Zone: ${frame.zone}) ---` });
             });
         } else {
-            // Handle case with no images if necessary
             imageParts.push({text: "No visual data provided."});
         }
         
-        // --- STEP 1: Generate Core Assessment (AI Call 1 - HEAVY MULTIMODAL) ---
-        // Image parts are included here for the full analysis path.
+        // --- STEP 1: (RE-ENABLED) Generate Core Assessment (AI Call 1 - HEAVY, SLOW, MULTIMODAL) ---
         const coreAssessment = await generateCoreAssessment(scanData, imageParts);
         
-        // --- STEP 2: Build Final Query with Core Assessment ---
+        // --- STEP 2: Build Final Query (TEXT-ONLY) ---
         const userQuery = getAiQuery(scanData, isDeepAnalysis, coreAssessment, cuspWarning);
         
-        // --- FIX: Create a new, clean `finalParts` array with the images included for the final report ---
-        let finalParts = [
-            ...imageParts, // Add ALL the images and their text for the final visual analysis
-            { text: userQuery } // Add the final query
-        ];
-        
-        // --- STEP 3: Generate Final Report (AI Call 2 - HEAVY MULTIMODAL) ---
+        // --- STEP 3: Generate Final Report (AI Call 2 - LIGHT, FAST, TEXT-ONLY) ---
+        // CRITICAL FIX: The payload for the second call *only* contains the text query.
+        // It does *NOT* include the imageParts again. This prevents the OOM crash.
         const payload = {
-            // Pass the new, clean `finalParts` array
-            contents: [{ role: "user", parts: finalParts }], 
+            contents: [{ role: "user", parts: [{ text: userQuery }] }], 
             safetySettings: [
                 { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
                 { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
@@ -263,13 +244,14 @@ app.post('/api/generateReport', async (req, res) => {
 
         if (!response.ok) {
             const errorText = await response.text();
-            throw new Error(`Google API Error: ${response.status} - ${errorText}`);
+            // This is where the 500 error from the "Expert" prompt was likely thrown
+            throw new Error(`Google API Error (Final Report): ${response.status} - ${errorText}`);
         }
 
         const result = await response.json();
         const aiResponse = result.candidates?.[0]?.content?.parts?.[0]?.text || "";
         
-        // Prepend the Core Assessment to the final report text for the user to see
+        // Prepend the (now successful) Core Assessment to the final report text
         const finalReport = `${coreAssessment}\n\n---\n\n${aiResponse}`;
         
         res.json({ text: finalReport });
@@ -280,7 +262,7 @@ app.post('/api/generateReport', async (req, res) => {
     }
 });
 
-// --- API Route for Handling Chat (with updated video list and EMOJI STRIPPING) ---
+// --- API Route for Handling Chat (Unchanged) ---
 app.post('/api/handleChat', async (req, res) => {
     if (!GEMINI_API_KEY) {
         return res.status(500).json({ error: "Server API Key is not configured." });
@@ -292,16 +274,15 @@ app.post('/api/handleChat', async (req, res) => {
         // --- NEW: Sanitize the chat history before sending it to Gemini ---
         const sanitizedHistory = chatHistory.map(message => {
             if (message.role === 'user') {
-                // Assuming the text is in the first part of the message
                 const originalText = message.parts[0].text;
-                const cleanText = stripEmojis(originalText); // Apply the cleaning function
+                const cleanText = stripEmojis(originalText);
                 
                 return {
                     role: 'user',
                     parts: [{ text: cleanText }]
                 };
             }
-            return message; // Return model messages as is
+            return message; 
         });
 
         // --- UPDATED AND CURATED VASTU VIDEO KNOWLEDGE BASE ---
