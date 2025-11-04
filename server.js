@@ -32,7 +32,7 @@ function getVastuZone(degrees) {
 app.use(cors()); // Allow cross-origin requests
 app.use(express.json({ limit: '50mb' })); // Increase payload limit for 8 images
 
-// --- HELPER FUNCTION 1: (RE-ENABLED) Analyzes the 8 images ---
+// --- HELPER FUNCTION 1: Analyzes the 8 images ---
 async function generateCoreAssessment(scanData, parts) {
     if (!GEMINI_API_KEY) throw new Error("Server API Key is not configured for core assessment.");
 
@@ -78,7 +78,7 @@ async function generateCoreAssessment(scanData, parts) {
     return result.candidates?.[0]?.content?.parts?.[0]?.text || "**Core Vastu Assessment (Defects Found)**\n- Assessment failed to generate. Please rescan.";
 }
 
-// --- HELPER FUNCTION 2: (REVERTED) Generates text-only queries ---
+// --- HELPER FUNCTION 2: Generates text-only queries ---
 function getAiQuery(scanData, isDeepAnalysis, coreAssessment, cuspWarning = "") {
     const {
         currentRoomTag,
@@ -87,8 +87,6 @@ function getAiQuery(scanData, isDeepAnalysis, coreAssessment, cuspWarning = "") 
         holisticIssues,
         holisticSurroundings
     } = scanData;
-    
-    // Scan data is not needed here as we are only using the Core Assessment text
     
     // --- Template for all reports to ensure shared context ---
     const sharedContext = `
@@ -222,8 +220,6 @@ app.post('/api/generateReport', async (req, res) => {
         const userQuery = getAiQuery(scanData, isDeepAnalysis, coreAssessment, cuspWarning);
         
         // --- STEP 3: Generate Final Report (AI Call 2 - LIGHT, FAST, TEXT-ONLY) ---
-        // CRITICAL FIX: The payload for the second call *only* contains the text query.
-        // It does *NOT* include the imageParts again. This prevents the OOM crash.
         const payload = {
             contents: [{ role: "user", parts: [{ text: userQuery }] }], 
             safetySettings: [
@@ -244,14 +240,13 @@ app.post('/api/generateReport', async (req, res) => {
 
         if (!response.ok) {
             const errorText = await response.text();
-            // This is where the 500 error from the "Expert" prompt was likely thrown
             throw new Error(`Google API Error (Final Report): ${response.status} - ${errorText}`);
         }
 
         const result = await response.json();
         const aiResponse = result.candidates?.[0]?.content?.parts?.[0]?.text || "";
         
-        // Prepend the (now successful) Core Assessment to the final report text
+        // Prepend the Core Assessment to the final report text
         const finalReport = `${coreAssessment}\n\n---\n\n${aiResponse}`;
         
         res.json({ text: finalReport });
@@ -342,7 +337,7 @@ app.post('/api/handleChat', async (req, res) => {
         
         **VIDEO CONTEXT:**
         If the user asks for a video about a *specific topic* (e.g., "video for kitchen", "main entrance video"), you MUST check your VIDEO_LINKS_KNOWLEDGE_BASE. 
-        If you find a matching topic (like 'Kitchen', 'Bedroom', 'Main Entrance', or 'Brahmasthan'), your response MUST include the full 'Embed_URL' for that video.
+        If you find a matching topic (like 'Kitchen', 'Bedroom', 'Main Entrance', or 'Brahmasthan'), you MUST include the full 'Embed_URL' for that video.
         If you do not have a video for that topic, you must state: "I don't have a specific video for that topic, but I can give you a text explanation."
         Do NOT search for videos or make up links. Only use the links provided in the knowledge base.
         
