@@ -10,6 +10,14 @@ const port = process.env.PORT || 3000;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const MODEL_NAME = "gemini-2.5-flash"; // Or your preferred model
 
+// --- EMOJI STRIPPING UTILITY FUNCTION ---
+function stripEmojis(str) {
+    if (!str) return '';
+    // This regex targets a broad range of common emoji and pictorial Unicode blocks.
+    // The 'gu' flags enable full Unicode support and global matching.
+    return str.replace(/(\u00a9|\u00ae|[\u2000-\u3300]|\ud83c[\ud000-\udfff]|\ud83d[\ud000-\udfff]|\ud83e[\ud000-\udfff])/gu, '');
+}
+
 // --- NEW HELPER FUNCTION: Add this near the top of server.js ---
 const VASTU_ZONES_16 = [
     "N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE",
@@ -27,11 +35,12 @@ function getVastuZone(degrees) {
 app.use(cors()); // Allow cross-origin requests
 app.use(express.json({ limit: '50mb' })); // Increase payload limit for 8 images
 
-// --- HELPER FUNCTION: To create the core consistency output ---
+// --- HELPER FUNCTION: To create the core consistency output (MULTIMODAL RE-ENABLED) ---
 async function generateCoreAssessment(scanData, parts) {
     // This runs first to establish the agreed-upon Vastu defects.
     if (!GEMINI_API_KEY) throw new Error("Server API Key is not configured for core assessment.");
 
+    // [MULTIMODAL RE-ENABLED] Prompt asks for image analysis
     const query = `
         CRITICAL INSTRUCTION: You are a Vastu Analyst AI. Analyze the provided ${parts.length - 1} visual segments 
         and the following room context: Room: ${scanData.currentRoomTag}, Location: ${scanData.roomLocationInHouse}, 
@@ -47,6 +56,7 @@ async function generateCoreAssessment(scanData, parts) {
     `;
 
     const payload = {
+        // [MULTIMODAL RE-ENABLED] Sending all image parts and the query
         contents: [{ role: "user", parts: [...parts, { text: query }] }],
         safetySettings: [
             { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
@@ -218,21 +228,20 @@ app.post('/api/generateReport', async (req, res) => {
             imageParts.push({text: "No visual data provided."});
         }
         
-        // --- STEP 1: Generate Core Assessment (AI Call 1) ---
-        // Pass *only* the image parts
+        // --- STEP 1: Generate Core Assessment (AI Call 1 - HEAVY MULTIMODAL) ---
+        // Image parts are included here for the full analysis path.
         const coreAssessment = await generateCoreAssessment(scanData, imageParts);
         
         // --- STEP 2: Build Final Query with Core Assessment ---
         const userQuery = getAiQuery(scanData, isDeepAnalysis, coreAssessment, cuspWarning);
         
-        // --- FIX: Create a new, clean `finalParts` array ---
-        // Do NOT reuse the old `parts` array.
+        // --- FIX: Create a new, clean `finalParts` array with the images included for the final report ---
         let finalParts = [
-            ...imageParts, // Add all the images and their text
+            ...imageParts, // Add ALL the images and their text for the final visual analysis
             { text: userQuery } // Add the final query
         ];
         
-        // --- STEP 3: Generate Final Report (AI Call 2) ---
+        // --- STEP 3: Generate Final Report (AI Call 2 - HEAVY MULTIMODAL) ---
         const payload = {
             // Pass the new, clean `finalParts` array
             contents: [{ role: "user", parts: finalParts }], 
@@ -271,7 +280,7 @@ app.post('/api/generateReport', async (req, res) => {
     }
 });
 
-// --- API Route for Handling Chat (with updated video list) ---
+// --- API Route for Handling Chat (with updated video list and EMOJI STRIPPING) ---
 app.post('/api/handleChat', async (req, res) => {
     if (!GEMINI_API_KEY) {
         return res.status(500).json({ error: "Server API Key is not configured." });
@@ -279,6 +288,21 @@ app.post('/api/handleChat', async (req, res) => {
 
     try {
         const { chatHistory, chatContextSummary } = req.body;
+
+        // --- NEW: Sanitize the chat history before sending it to Gemini ---
+        const sanitizedHistory = chatHistory.map(message => {
+            if (message.role === 'user') {
+                // Assuming the text is in the first part of the message
+                const originalText = message.parts[0].text;
+                const cleanText = stripEmojis(originalText); // Apply the cleaning function
+                
+                return {
+                    role: 'user',
+                    parts: [{ text: cleanText }]
+                };
+            }
+            return message; // Return model messages as is
+        });
 
         // --- UPDATED AND CURATED VASTU VIDEO KNOWLEDGE BASE ---
         const vastuVideoKnowledgeBase = `
@@ -349,7 +373,7 @@ app.post('/api/handleChat', async (req, res) => {
 
         // The payload is now simpler, with no "tools" section
         const payload = {
-            contents: chatHistory,
+            contents: sanitizedHistory,
             systemInstruction: {
                 parts: [{ text: chatSystemPrompt }]
             }
