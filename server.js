@@ -61,13 +61,13 @@ async function generateCoreAssessment(scanData, parts) {
         ]
     };
 
-    // --- FIX: Correct URL with https:// ---
     const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${GEMINI_API_KEY}`;
         
     const response = await fetch(apiUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
+        timeout: 600000 // 10 minutes timeout for multimodal call
     });
 
     if (!response.ok) {
@@ -231,13 +231,13 @@ app.post('/api/generateReport', async (req, res) => {
             ]
         };
 
-        // --- FIX: Correct URL with https:// ---
         const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${GEMINI_API_KEY}`;
         
         const response = await fetch(apiUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
+            body: JSON.stringify(payload),
+            timeout: 600000 // 10 minutes timeout for report generation
         });
 
         if (!response.ok) {
@@ -283,52 +283,17 @@ app.post('/api/handleChat', async (req, res) => {
             return message; 
         });
 
-        // --- UPDATED AND CURATED VASTU VIDEO KNOWLEDGE BASE ---
+        // 🛑 FIX: Drastically cut video knowledge base to speed up AI context load
         const vastuVideoKnowledgeBase = `
           VIDEO_LINKS_KNOWLEDGE_BASE:
-          // --- Core Vastu Topics (Foundational) ---
           - Topic: 'Vastu for Kitchen'
             Embed_URL: 'https://www.youtube.com/embed/6LsU7e31Up0' 
           - Topic: 'Vastu for Main Entrance'
             Embed_URL: 'https://www.youtube.com/embed/9LtowbvhYnw' 
-          - Topic: 'Vastu for Bedroom'
-            Embed_URL: 'https://www.youtube.com/embed/UeHNy9Feg9Y' 
           - Topic: 'Vastu for 16 Zones'
             Embed_URL: 'https://www.youtube.com/embed/qgAvsQOqf-g' 
-          - Topic: 'What is Brahmasthan'
-            Embed_URL: 'https://www.youtube.com/embed/9NdaqM9wKUU'
-
-          // --- Expert: Acharya Pankit Goyal (High-View Content) ---
-          - Topic: 'Vastu Secrets Basic to Advanced'
-            Embed_URL: 'https://www.youtube.com/embed/qe5f4avfD6w' 
-          - Topic: 'Vastu Tips for Income'
-            Embed_URL: 'https://www.youtube.com/embed/Ojhw5xka7_4' 
           - Topic: 'Vastu Tips for Home'
             Embed_URL: 'https://www.youtube.com/embed/YKLuoA35FH0' 
-          
-          // --- Expert: Dr. Khushdeep Bansal (MahaVastu - No Demolition Focus) ---
-          - Topic: 'MahaVastu No Demolition Remedies'
-            Embed_URL: 'https://www.youtube.com/embed/HNIw9lUAU5w' 
-          - Topic: 'MahaVastu for Money and Wealth'
-            Embed_URL: 'https://www.youtube.com/embed/KJ-UW66wGV8' 
-          
-          // --- Expert: Dr. Kunal Kaushik (Scientific Vastu - Myths Busted) ---
-          - Topic: 'Scientific Vastu Myth vs Reality'
-            Embed_URL: 'https://www.youtube.com/embed/p1PMOo_dMjQ' 
-          - Topic: 'Vastu for Main Door Myths Busted'
-            Embed_URL: 'https://www.youtube.com/embed/JMfNgA_KvOI' 
-
-          // --- Expert: Dr. Vaishali Gupta (Vedic Vastu Hub - Holistic Approach) ---
-          - Topic: 'Vedic Vastu The Real Vastu'
-            Embed_URL: 'https://www.youtube.com/embed/k1Gbz9hnvwI' 
-          - Topic: 'How Vastu Shastra Will Change Your Life'
-            Embed_URL: 'https://www.youtube.com/embed/P4b1tG7PhiE' 
-          
-          // --- Other High-Traffic Expert Videos ---
-          - Topic: 'Quick Vastu Tips for Home'
-            Embed_URL: 'https://www.youtube.com/embed/gufN_y5vx1U' // Astro Arun Pandit
-          - Topic: 'Vastu for Wealth Health Prosperity'
-            Embed_URL: 'https://www.youtube.com/embed/jf5RD7cKm8M' // Jai Madaan
         `;
 
         // --- System Prompt (with SyntaxError fixed) ---
@@ -350,7 +315,6 @@ app.post('/api/handleChat', async (req, res) => {
         Answer general Vastu questions concisely.
         Keep your answers simple and friendly. You may use **bold markdown** for emphasis. For bulleted lists, you MUST use a dash (-) and NOT an asterisk (*).`;
 
-        // The payload is now simpler, with no "tools" section
         const payload = {
             contents: sanitizedHistory,
             systemInstruction: {
@@ -358,13 +322,14 @@ app.post('/api/handleChat', async (req, res) => {
             }
         };
 
-        // --- FIX: Correct URL with https:// ---
         const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${GEMINI_API_KEY}`;
 
         const response = await fetch(apiUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
+            body: JSON.stringify(payload),
+            // 🛑 CRITICAL FIX: Reduce chat timeout for low-latency text response
+            timeout: 30000 // 30 seconds max for chat
         });
 
         if (!response.ok) {
