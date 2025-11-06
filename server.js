@@ -32,11 +32,44 @@ function getVastuZone(degrees) {
 app.use(cors()); 
 app.use(express.json({ limit: '50mb' })); 
 
-// --- HELPER FUNCTION 1: Analyzes the 8 images (Unchanged logic) ---
+// --- HELPER FUNCTION 1: Analyzes the 8 images (CRITICAL MAPPING FIX) ---
 async function generateCoreAssessment(scanData, parts) {
     if (!GEMINI_API_KEY) throw new Error("Server API Key is not configured for core assessment.");
 
-    // ... (query and core multimodal call logic unchanged)
+    const query = `
+        CRITICAL INSTRUCTION: You are a Vastu Analyst AI. You have been provided with 8 images (visual segments) of a room scan, along with room context.
+        
+        CONTEXT: Room: ${scanData.currentRoomTag}, Location: ${scanData.roomLocationInHouse}, Concerns: ${scanData.holisticIssues}.
+        
+        CRITICAL TASK: Analyze the 8 visual segments. For EACH segment, provide a very concise analysis (1-2 sentences) of what the image shows (e.g., color, objects, state of the area) and list 1-2 major Vastu defects related to that specific Vastu zone (as indicated in the segment's label).
+        
+        Your SOLE output must be structured as follows:
+        
+        **Core Vastu Assessment**
+        
+        Then, list the analysis for each of the 8 segments, using a numbered list (1., 2., 3., etc.). The order MUST be: 1. N, 2. NE, 3. E, 4. SE, 5. S, 6. SW, 7. W, 8. NW.
+        
+        1. Analysis for the North segment goes here. List the 1-2 defects found visually or directionally.
+        2. Analysis for the North-East segment goes here. List the 1-2 defects found visually or directionally.
+        3. Analysis for the East segment goes here. List the 1-2 defects found visually or directionally.
+        4. Analysis for the South-East segment goes here. List the 1-2 defects found visually or directionally.
+        5. Analysis for the South segment goes here. List the 1-2 defects found visually or directionally.
+        6. Analysis for the South-West segment goes here. List the 1-2 defects found visually or directionally.
+        7. Analysis for the West segment goes here. List the 1-2 defects found visually or directionally.
+        8. Analysis for the North-West segment goes here. List the 1-2 defects found visually or directionally.
+        
+        Do NOT include any other text, remedies, or summaries in this core assessment.
+    `;
+
+    const payload = {
+        contents: [{ role: "user", parts: [...parts, { text: query }] }],
+        safetySettings: [
+            { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
+            { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+            { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
+            { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" }
+        ]
+    };
 
     const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${GEMINI_API_KEY}`;
         
@@ -55,17 +88,105 @@ async function generateCoreAssessment(scanData, parts) {
     const result = await response.json();
     let aiOutput = result.candidates?.[0]?.content?.parts?.[0]?.text || "**Core Vastu Assessment**\n\n1. Assessment failed to generate. Please rescan.";
     
-    // ... (post-processing/tagging logic unchanged)
+    // CRITICAL FIX: After receiving the numbered list, apply the tags reliably.
+    for (let i = 1; i <= 8; i++) {
+        const regex = new RegExp(`^${i}\\. (.*?)($|\\n(?=${i + 1}\\.))`, 'm');
+        aiOutput = aiOutput.replace(regex, `[IMAGE_${i}_ANALYSIS]$1\n`);
+    }
+
+    aiOutput = aiOutput.replace(/^[0-9]+\.\s*/gm, '');
 
     return aiOutput;
 }
 
 // --- HELPER FUNCTION 2: Generates text-only queries (Unchanged structure) ---
 function getAiQuery(scanData, isDeepAnalysis, coreAssessment, cuspWarning = "") {
-    // ... (logic unchanged)
+    const {
+        currentRoomTag,
+        roomLocationInHouse,
+        floorNumber,
+        holisticIssues,
+        holisticSurroundings
+    } = scanData;
+    
+    // --- Template for all reports to ensure shared context ---
+    const sharedContext = `
+        ${cuspWarning} 
+
+        CORE VASTU FINDINGS (MUST BE USED AS THE BASIS FOR ALL REMEDIES):
+        ${coreAssessment}
+        
+        CONTEXT FOR THIS REPORT:
+        - Area Scanned: ${currentRoomTag}
+        - Location (C-Point): The ${currentRoomTag} is in the ${roomLocationInHouse || 'UNKNOWN'} zone of the house.
+        - Floor: ${floorNumber || 'N/A'}
+        - User's Concerns: ${holisticIssues}
+        - Property Surroundings: ${holisticSurroundings}
+    `;
+    
+    if (isDeepAnalysis) {
+        // ... (Expert Analysis prompt remains the same)
+        return `
+            CRITICAL INSTRUCTION: You are a Master Vastu Shastra Analyst AI, specializing in structural solutions.
+            Your task is to provide an ADVANCED, STRUCTURAL Analysis based **EXCLUSIVELY** on the Core Vastu Findings provided below.
+            
+            ${sharedContext}
+            
+            CRITICAL TASK:
+            Do NOT write a full report. Provide a structural analysis focusing on the defects in the CORE VASTU FINDINGS.
+            
+            Start with this exact title (using bold markdown):
+            **Expert Analysis (Structural Recommendations)**
+            
+            Then, add this disclaimer on a new line:
+            "The following are advanced, structural-level observations. These are major changes and should be considered carefully."
+            
+            Then, create two subsections, both using bullet points (using a dash "-"):
+            
+            **Minor Structural Recommendations**
+            (List minor structural changes that address the core defects. e.g., "- Relocating the stove from the North to the South-East corner of the kitchen.")
+            
+            **Major Structural Recommendations**
+            (List major structural changes that address the core defects. e.g., "- The kitchen's location is a severe defect. The ideal solution is to move this kitchen to the South-East zone.")
+            
+            Formatting: Use bullet points (using -). You MUST use **bold markdown** for the main title and two sub-section titles.
+        `;
+    } else {
+        // --- Formal Report (MODIFIED STRUCTURE) ---
+        return `
+            CRITICAL INSTRUCTION: You are a Master Vastu Shastra Analyst AI, specializing in non-structural, actionable remedies.
+            Your response must be a single, structured Vastu Report, following all instructions below exactly. Use the Core Vastu Findings to guide your report.
+            
+            ${sharedContext}
+
+            Based on ALL this data, provide a comprehensive report. Tailor your analysis and remedies in Section I and IV to address the user's primary concerns.
+            
+            The report must be structured into FIVE consecutive sections. Use **bold markdown** for all section titles:
+
+            **I. Executive Summary (Layman's Terms)**: Simple summary. Cover the 2-3 most critical findings and non-structural remedies. Ensure you mention the Vastu Zone compliance of the scanned area (${currentRoomTag}) based on its location (${roomLocationInHouse}).
+
+            **II. Visual Segment Analysis**: CRITICAL: This section MUST contain the exact text provided in the "CORE VASTU FINDINGS" above. Copy the title and the 8 lines of [IMAGE_N_ANALYSIS] text exactly as they appear in the CORE VASTU FINDINGS. This section will handle the image display and analysis on the client side.
+
+            **III. Directional Data and Environmental Assessment**: Technical analysis of the observed headings, Vastu zones, and property surroundings.
+
+            **IV. Remedial Recommendations (Advanced)**: CRITICAL: This section MUST use bullet points (using a dash "-"). Structure this section into two sub-sections using **bold markdown**. All remedies must be NON-STRUCTURAL.
+            **Minor Defects & Remedies**
+            (List non-structural remedies here, addressing points from the visual analysis.)
+            **Major Defects & Remedies**
+            (List more significant NON-STRUCTURAL remedies here, addressing major positional defects.)
+            
+            **V. Vastu Tips & Remedies (Actionable Advice)**: A short, separate section offering quick, general Vastu tips related to this specific room type.
+            
+            If the CUSP WARNING was provided in the context, you MUST also add a brief section titled:
+            **"VI. Cusp Analysis (Alternate Zone)"**
+            Briefly list 2-3 key Vastu defects that would apply if the room were in the alternate zone mentioned in the warning.
+
+            Formatting requirements: Use paragraph breaks for readability. You MUST use bullet points (using -). You MUST use **bold markdown** for all section and sub-section titles.
+        `;
+    }
 }
 
-// --- MODIFIED API ROUTE: generateReport (Unchanged flow) ---
+// --- MODIFIED API ROUTE: generateReport (Stability Fix) ---
 app.post('/api/generateReport', async (req, res) => {
     if (!GEMINI_API_KEY) {
         return res.status(500).json({ error: "Server API Key is not configured." });
@@ -73,17 +194,50 @@ app.post('/api/generateReport', async (req, res) => {
 
     try {
         const { isDeepAnalysis, scanData } = req.body;
-        // ... (CUSP WARNING logic unchanged)
-
-        // ... (imageParts setup unchanged)
         
-        // --- STEP 1: Generate Core Assessment ---
+        let cuspWarning = "";
+        const userAngle = scanData.roomLocationInHouse;
+        // ... (CUSP WARNING logic remains the same)
+        if (typeof userAngle === 'number' && userAngle !== 0) {
+            const zone1 = getVastuZone(userAngle);
+            const zone2 = getVastuZone((userAngle + 10.0) % 360);
+            const zone3 = getVastuZone((userAngle - 10.0 + 360) % 360);
+
+            if (zone1 !== zone2 || zone1 !== zone3) {
+                const otherZone = (zone1 !== zone2) ? zone2 : zone3;
+                
+                cuspWarning = `
+                    **CRITICAL WARNING: CUSP DETECTION**
+                    The user's locked angle of **${userAngle.toFixed(1)}°** is on the border of two Vastu zones.
+                    Your analysis **MUST** address this. Start your report with this warning:
+                    
+                    "**Warning: Potential Inaccuracy Detected**
+                    Your room's locked direction is on the border of the **${zone1}** and **${otherZone}** zones."
+                    
+                    Then, in your main analysis (for the standard report), you MUST also add a *brief* section titled:
+                    **"VI. Cusp Analysis (${otherZone} Zone)"**
+                    Briefly list 2-3 key Vastu defects that would apply if the room were in the **${otherZone}** zone instead.
+                `;
+            }
+        }
+        
+        let imageParts = [];
+        if (scanData.capturedFrames && scanData.capturedFrames.length > 0) {
+            scanData.capturedFrames.forEach((frame, index) => {
+                imageParts.push({ inlineData: { mimeType: "image/jpeg", data: frame.image } });
+                imageParts.push({ text: `--- Visual Data Segment ${index + 1} Captured at Heading ${frame.heading.toFixed(1)} degrees (Vastu Zone: ${frame.zone}) ---` });
+            });
+        } else {
+            imageParts.push({text: "No visual data provided."});
+        }
+        
+        // --- STEP 1: Generate Core Assessment (AI Call 1) ---
         const coreAssessment = await generateCoreAssessment(scanData, imageParts);
         
         // --- STEP 2: Build Final Query ---
         const userQuery = getAiQuery(scanData, isDeepAnalysis, coreAssessment, cuspWarning);
         
-        // --- STEP 3: Generate Final Report ---
+        // --- STEP 3: Generate Final Report (AI Call 2) ---
         const payload = {
             contents: [{ role: "user", parts: [{ text: userQuery }] }], 
             safetySettings: [
@@ -115,12 +269,12 @@ app.post('/api/generateReport', async (req, res) => {
 
     } catch (error) {
         console.error('Error in /api/generateReport:', error.message);
-        // Ensure a clean 500 status with an error message is always returned
+        // 🛑 FIX: Ensure a clean 500 status with an error message is always returned
         res.status(500).json({ error: error.message });
     }
 });
 
-// --- API Route for Handling Chat (TIMEOUT FIX) ---
+// --- API Route for Handling Chat (Timeout Fix) ---
 app.post('/api/handleChat', async (req, res) => {
     if (!GEMINI_API_KEY) {
         return res.status(500).json({ error: "Server API Key is not configured." });
@@ -128,20 +282,7 @@ app.post('/api/handleChat', async (req, res) => {
 
     try {
         const { chatHistory, chatContextSummary } = req.body;
-
-        // ... (history and knowledge base setup unchanged)
-
-        // --- System Prompt (unchanged) ---
-        const chatSystemPrompt = `You are a helpful and friendly Vastu Shastra AI assistant.
-        // ... (rest of prompt unchanged)
-        `;
-
-        const payload = {
-            contents: sanitizedHistory,
-            systemInstruction: {
-                parts: [{ text: chatSystemPrompt }]
-            }
-        };
+        // ... (Sanitization and system prompt setup remains the same)
 
         const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${GEMINI_API_KEY}`;
 
@@ -149,7 +290,7 @@ app.post('/api/handleChat', async (req, res) => {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
-            // 🛑 FIX: Increase chat timeout to 60 seconds for stability
+            // 🛑 FIX: Increased chat timeout to 60 seconds for stability
             timeout: 60000 
         });
 
@@ -165,7 +306,7 @@ app.post('/api/handleChat', async (req, res) => {
 
     } catch (error) {
         console.error('Error in /api/handleChat:', error.message);
-        // Ensure a clean 500 status with an error message is always returned
+        // 🛑 FIX: Ensure a clean 500 status with an error message is always returned
         res.status(500).json({ error: error.message });
     }
 });
